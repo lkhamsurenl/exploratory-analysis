@@ -1,0 +1,246 @@
+---
+title: "presidential_election"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: 2
+    code_folding: show
+  html_notebook: default
+---
+
+```{r include=FALSE}
+library(maps)
+library(tidyverse)
+library(ggrepel)
+```
+
+# Why: Why is this a real problem that is worth solving?
+
+In this document, we perform basic exploraty analysis to gain some insights into US Presidential election. 
+
+
+Source: https://dataverse.harvard.edu/file.xhtml?persistentId=doi:10.7910/DVN/42MVDX/MFU99O&version=5.0
+
+```{r}
+full_data <- read_csv("dataset/1976-2016-president.csv") 
+
+# for the most of the analysis, we will keep our focus in 2 of the biggest parties
+DEM <- "democrat"
+REP <- "republican"
+big2_data <- full_data %>% 
+  filter(party %in% c(DEM, REP)) %>% 
+  mutate(candidatevotes_in_millions = candidatevotes / 1e6) %>% 
+  mutate(votes_in_perc = candidatevotes / totalvotes)
+```
+
+
+# Helper functions:
+
+```{r}
+main_states <- map_data("state")
+
+year_scale <- function() {
+  scale_x_discrete(limits = seq(1976, 2016, 4))
+}
+scale_color <- function() {
+  scale_color_manual(values=c("#56B4E9", "#D55E00"))
+}
+scale_fill <- function() {
+  scale_fill_manual(values=c("#56B4E9", "#D55E00"))
+}
+# add a line and point to each data point to highlight
+line <- function() {
+  c(geom_line(), geom_point(), year_scale(), scale_color())
+}
+
+state_plot <- function(df, states) {
+  df %>% 
+    filter(state_po %in% states) %>%  
+    ggplot(aes(x = year, y = votes_in_perc, color = party)) + 
+      geom_line() + 
+      geom_point() + 
+      scale_color() + 
+      facet_wrap(. ~ state_po)
+}
+```
+
+
+
+### Total votes across all states by party
+
+```{r}
+big2_data %>% 
+  group_by(candidate, party, year) %>% 
+  summarise(total_vote = sum(candidatevotes_in_millions)) %>% 
+  filter(total_vote > 5) %>% 
+  ggplot(aes(x = year, y = total_vote, color = party)) + 
+    line() + 
+    geom_text(aes(label = candidate), vjust = -0.5, check_overlap = T, size=3) +
+    ylab("Total vote in Millions")
+```
+
+NOTE: For the last 3 elections, democratis have won the popular vote.
+
+### Democratic candidate votes in certain states of interests
+
+```{r}
+state_plot(big2_data, c("CA", "PA", "WI", "FL"))
+```
+
+NOTES: 
+1. Interestingly around 30 years ago, CA was actually a republican state, and since then it's been mostly DEM and ever increasing
+
+
+### Popularity margin of Democratic candidate
+
+```{r}
+big2_data %>% 
+  group_by(year, party) %>% 
+  summarise(
+    candidate_total = sum(candidatevotes) / sum(totalvotes)
+  ) %>% 
+  pivot_wider(names_from = party, values_from = candidate_total) %>% 
+  mutate(democrat_winning_margin = democrat - republican) %>% 
+  ggplot(aes(x = year, y = democrat_winning_margin)) + 
+    line()
+```
+
+NOTE: It is very much cyclical
+
+```{r}
+big2_data %>% 
+  group_by(party, year) %>% 
+  summarise(party_perc = sum(candidatevotes) / sum(totalvotes)) %>% 
+  ggplot(aes(x = year, y = party_perc, fill = party)) + 
+    geom_bar(stat="identity") + 
+    year_scale() + 
+    scale_fill()
+```
+
+1992 was, by far, the year where voters elected to prefer candidate other than 2 big parties.
+
+### Who has won by biggest margin?
+
+```{r}
+widest_margin_year <- big2_data %>% 
+  group_by(year, party) %>% 
+  summarise(
+    candidate_total = sum(candidatevotes) / sum(totalvotes)
+  ) %>% 
+  pivot_wider(names_from = party, values_from = candidate_total) %>% 
+  mutate(margin = abs(democrat - republican)) %>% 
+  arrange(desc(margin)) %>% 
+  head(1)
+
+widest_margin_year %>% 
+  inner_join(big2_data, by="year") %>% 
+  group_by(candidate) %>% 
+  summarise(total_votes_in_millions = sum(candidatevotes_in_millions)) %>% 
+  ggplot(aes(x = candidate, y = total_votes_in_millions, fill = candidate)) + 
+    geom_bar(stat="identity") + 
+    geom_text(aes(label = round(total_votes_in_millions, 2)), vjust = -0.5) + 
+    labs(title = paste0(
+      "Highest margin between 2 parties was in ", 
+      widest_margin_year %>% select(year)
+    )) + 
+    scale_fill()
+```
+
+### States won 
+
+```{r}
+big2_data %>% 
+  select(year, state_po, party, candidatevotes) %>% 
+  group_by(year, state_po, party) %>% 
+  summarise(candidatevotes = sum(candidatevotes)) %>% 
+  pivot_wider(id_cols = c(year, state_po), names_from = party, values_from = candidatevotes) %>% 
+  mutate(
+    dem_win = democrat > republican,
+    rep_win = !dem_win
+  ) %>% 
+  group_by(year) %>%
+  summarise(
+    democrat = sum(dem_win, na.rm = T),
+    republic = sum(rep_win, na.rm = T)
+  ) %>% 
+  pivot_longer(cols=c(democrat, republic), names_to="party", values_to = "states_won") %>% 
+  ggplot(aes(x = year, y = states_won, fill = party)) + 
+    geom_bar(stat="identity", position="dodge") + 
+    year_scale() + 
+    scale_fill()
+```
+
+Let's pay closer attention to 2000 and 2016 as they seem to closely resemble each other:
+
+```{r}
+state_plot(big2_data, c("CA", "PA", "WI", "FL")) + 
+  geom_vline(linetype="dashed", xintercept = c(2000, 2016))
+```
+
+Interestengly it looks like an almost tie in both Florida and Wisconsin in 2000 and turned slight republic in 2016. Pennsylvania is an exception (has been traditionally democratic state since 1990 except on 2016).
+
+Let's zoom in on last 3 elections on those 3 states:
+
+```{r}
+state_plot(
+  big2_data %>% filter(year >= 2008), 
+  c("CA", "PA", "WI", "FL")
+) + 
+  geom_smooth(aes(group = party), method = "lm", se=FALSE, linetype = "dashed")
+```
+
+Here you will notice that all 3 states have upward trend of voting more towards republican candidates for last 3 elections. If we assume the trend will continue with the current trajectory, the 2020 democratic candidate needs to be able to find other states to find some hope of winning.
+
+### 2008 states map
+
+```{r}
+state_winners <- function(df) {
+  df %>% 
+  select(year, state, party, votes_in_perc) %>% 
+  mutate(region = tolower(state)) %>% 
+  group_by(year, region, party) %>% 
+  summarise(votes_in_perc= sum(votes_in_perc)) %>% 
+  pivot_wider(id_cols = c(year, region), names_from = party, values_from = votes_in_perc) %>% 
+  mutate(winner_party = ifelse(democrat > republican, "democrat", "republican"))
+}
+
+state_map <- function(df) {
+  df %>%
+  inner_join(main_states, by=c("region")) %>% 
+  ggplot() + 
+    geom_polygon(aes(x=long, y=lat, group=group, fill = winner_party), 
+                color="white", size = 0.2) + 
+    scale_fill()
+}
+
+big2_data %>% 
+  state_winners() %>% 
+  filter(year == 2008) %>% 
+  state_map() 
+```
+```{r}
+changed_states <- big2_data %>% 
+  state_winners() %>% 
+  select(year, region, winner_party) %>% 
+  filter(year %in% c(2008, 2016)) %>% 
+  pivot_wider(id_cols=c(region), names_from = year, values_from = winner_party) %>% 
+  filter(`2008` != `2016`) 
+
+main_states %>% 
+  left_join(changed_states, by=c("region")) %>% 
+  ggplot() + 
+    geom_polygon(aes(x=long, y=lat, group=group, fill = `2016`), 
+                color="white", size = 0.2)
+```
+
+Those are all states that have turned from democratic to republican in 2016 election vs 2008.
+
+
+# Summary
+
+* For last 3 elections, Democratic party has won the popular vote but the margin has been decreasing
+* We observe ever growing margin of democratic turn for California
+* So called swing states of PA, Wisconsin, Florida all have elected Republican for the 2016 election (but all has elected Obama for 2008 and 2012)
+* Ronald Reagon was the single most popular candidate who won by more than 16% margin in 1984.
+* We also took a closer look into states where the race was particularly close and found that in all of Florida, Pennsylvania, and Wisconsin there have been upward trend of republican votes, even during Obama candidacy, and in 2016 Trump won presidency by winning on all of those states. If we believe the trend of last 12 years will likely continue, then we will expect Republican candidate to win the election in those states in 2020.

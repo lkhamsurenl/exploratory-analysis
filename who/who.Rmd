@@ -1,0 +1,304 @@
+---
+title: "WHO"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: 2
+  html_notebook: default
+---
+
+```{r}
+library(gridExtra)
+library(ggpubr)
+library(stringr)
+library(dplyr)
+library(ggrepel)
+```
+
+# Why: Why is this a real problem that is worth solving?
+
+We perform exploratory analysis on World Health Organization (WHO) datasets.
+
+
+```{r}
+mortality_rate <- read.csv(
+  "mortality_rate.csv",
+  stringsAsFactors = F
+) 
+
+mortality_rate <- mortality_rate %>%  
+  mutate(
+    Number.of.under.five.deaths..thousands. = as.numeric(Number.of.under.five.deaths..thousands.),
+    Number.of.infant.deaths..thousands. = as.numeric(Number.of.infant.deaths..thousands.),
+    Number.of.neonatal.deaths..thousands. = as.numeric(Number.of.neonatal.deaths..thousands.)
+  )
+
+mortality_rate[is.na(mortality_rate)] <- 0
+```
+
+```{r}
+healthcare_expenditure <- read.csv(
+  "healthcare_expenditure.csv",
+  stringsAsFactors = F
+)
+
+healthcare_gdp <- bind_rows(
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP.....,
+      Year = 2015
+    ),
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......1,
+      Year = 2014
+    ),
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......2,
+      Year = 2013
+    ),
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......3,
+      Year = 2012
+    ),
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......4,
+      Year = 2011
+    ),
+  healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......5,
+      Year = 2010
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......6,
+      Year = 2009
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......7,
+      Year = 2008
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......8,
+      Year = 2007
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......9,
+      Year = 2006
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......10,
+      Year = 2005
+    ),
+    healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......11,
+      Year = 2004
+    ),
+      healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......12,
+      Year = 2003
+    ),
+      healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......13,
+      Year = 2002
+    ),
+      healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......14,
+      Year = 2001
+    ),
+      healthcare_expenditure %>% 
+    transmute(
+      Country = X,
+      healthcare_expenditure_perc_gdp = Current.health.expenditure..CHE..as.percentage.of.gross.domestic.product..GDP......15,
+      Year = 2000
+    )
+)
+
+healthcare_gdp <- healthcare_gdp %>% 
+  mutate(
+    healthcare_expenditure_perc_gdp = as.numeric(healthcare_expenditure_perc_gdp)
+  )
+
+```
+
+```{r}
+demographic_rate_2013 <- read.csv(
+  "2013_demographic_rates.csv",
+  stringsAsFactors = F
+) %>% 
+  rename(Country = X)
+```
+
+
+```{r}
+population_2016 <- read.csv(
+  "population_2016.csv",
+  stringsAsFactors = F
+) %>% 
+  transmute(
+    Country = Country,
+    Population..in.thousands..total = as.numeric(gsub(" ", "", Population..in.thousands..total))
+  )
+```
+
+### Summarize each dataset
+
+```{r}
+summary(mortality_rate)
+```
+
+```{r}
+summary(healthcare_gdp)
+```
+
+
+```{r}
+summary(demographic_rate_2013)
+```
+
+### How does mortality rate compare for some countries of interest against United States?
+
+Here since we do not have an accurate data on actual birth rate for each country, we will use 2013 birth rate as an estimate and assume it's static across each year.
+
+```{r}
+total_births <- merge(
+  demographic_rate_2013,
+  population_2016,
+  by=c("Country")
+) %>% 
+  mutate(num_of_births = Population..in.thousands..total * Crude.birth.rate..per.1000.population.)
+  
+
+mortality_and_birth_rate <- merge(
+  mortality_rate %>% mutate(total_infant_deaths = 1000.0 * Number.of.infant.deaths..thousands.),
+  total_births,
+  by = c("Country")
+) %>% 
+  mutate(
+    infant_survival_rate = 1.0 - total_infant_deaths / num_of_births
+  )
+```
+
+
+```{r}
+mortality_and_birth_rate %>% 
+  filter(Country %in% c('Mongolia', 'United States of America', 'Mexico', 'Sweden', 'India', 'China', 'Sierra Leone', 'Liberia', 'Central African Republic')) %>% 
+  ggplot(aes(x = Year, y = infant_survival_rate, color = Country)) + 
+    geom_line()
+```
+
+Some observations from above:
+
+1. Almost all of the countries made a positive progress in terms of reducing mortality rate.
+2. Central African Republic is the only place where we observe a decline in survival rate starting around 1995ish, then gradually recovering in 2010. 
+3. United States survival rate has been really good at the start of 1990s, but has remained flat since then. China's survival rate has almost caught up to that of US as we can see.  
+
+As expected, Sweden has a very good mortality rate, but Mongolia has made tremendous progress towards reducing the mortality rate (which is now comparable to that of United States). 
+
+
+### How does current mortality rate looks among countries?
+
+```{r}
+merge(
+  mortality_and_birth_rate,
+  healthcare_gdp,
+  by=c('Country', 'Year')
+) %>% 
+  filter(
+    Year == 2015,
+    Country %in% c('Mongolia', 'United States of America', 'Mexico', 'Sweden')
+  ) %>% 
+  ggplot(aes(x = healthcare_expenditure_perc_gdp, y = infant_survival_rate, label = Country)) + 
+    geom_point() + 
+    geom_text()
+```
+
+How is the correlation between healthcare expenditure percenatage and mortality rate for all countries as of 2015?
+
+```{r}
+merge(
+  mortality_and_birth_rate,
+  healthcare_gdp,
+  by=c('Country', 'Year')
+) %>% 
+  filter(
+    Year == 2015
+  ) %>% 
+  ggplot(aes(x = healthcare_expenditure_perc_gdp, y = infant_survival_rate, label = Country)) + 
+    geom_point() + 
+    geom_text() +
+    geom_smooth(method = "lm")
+```
+
+Here we do observe some outlier countries:
+
+1. Sierra Leone spends significant portion of the country's GDP on healthcare but survival rate is about 93%, which is relatively low among all countries (but note here that whole world made tremendous progress overall).
+
+
+Let's focus on countries with some progress to go (namely with survival rate < 98%)
+
+```{r}
+merge(
+  mortality_and_birth_rate,
+  healthcare_gdp,
+  by=c('Country', 'Year')
+) %>% 
+  filter(
+    Year == 2015,
+    infant_survival_rate < 0.98
+  ) %>% 
+  ggplot(aes(x = healthcare_expenditure_perc_gdp, y = infant_survival_rate, label = Country)) + 
+    geom_point() + 
+    geom_text_repel()
+```
+
+
+# How: How do we know if we have solved the problem?
+
+TODO: Explain the process of addressing problems 
+
+TODO: Include metrics we will use to define our success
+
+# What: What does this look like in the product?
+
+TODO: Summarize the takeaways
+
+TODO: Provide details on the solution and productionalization plan
+
+
+# Timeline
+
+1. Finish 1-pager [2018-01-22]
+2. Final deliverable [2018-02-29]
+
+# References
+
+https://www.who.int/gho/en/

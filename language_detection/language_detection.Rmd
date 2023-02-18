@@ -1,0 +1,323 @@
+---
+title: "language_detection"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+## Introduction
+
+In this document, we evaluate the various type of models we propose for language detection purpose
+
+## Dataset
+
+For the purpose of this analysis, we use Airbnb internal translated (by translation team) phrases for employees generated contents. This include
+
+* Website contents 
+* Email contents
+
+We have roughly 12M total phrases with corresponding language (label), we split it:
+
+* valid (10K)
+* eval (10K)
+* training (remainder)
+
+
+```{r}
+eval_data <- read.csv(
+  "data/eval_data.csv", 
+  sep="\t",
+  blank.lines.skip=TRUE,
+  stringsAsFactors=FALSE
+)
+eval_data <- eval_data %>% 
+  mutate(
+    langid_prob = as.numeric(langid_prob),
+    langdetect_prob = as.numeric(langdetect_prob)
+  )
+
+valid_data <- read.csv(
+  "data/valid_data.csv", 
+  sep="\t",
+  blank.lines.skip=TRUE,
+  stringsAsFactors=FALSE
+)
+valid_data <- valid_data %>% 
+  mutate(
+    langid_prob = as.numeric(langid_prob),
+    langdetect_prob = as.numeric(langdetect_prob)
+  )
+```
+
+
+## Baseline
+
+We evaluate Google language detection API on phrases on eval and present result in this section.
+
+Google phrase locales sample:
+
+```{r}
+head(eval_data)
+```
+
+Overall precision of google api:
+
+```{r}
+eval_data %>% 
+  summarise(precision=sum(ifelse(locale == google_translate_locale, 1, 0)) / n())
+```
+
+What is the breakdown by each language category?
+
+```{r}
+eval_data %>% 
+  group_by(locale) %>% 
+  summarise(precision = sum(ifelse(locale == google_translate_locale, 1, 0)) / n()) %>% 
+  ggplot(aes(x = reorder(locale, precision), y = precision)) + 
+    geom_bar(stat="identity")
+```
+
+#### Langid based model
+
+What is the accuracy of langid & langdetect model?
+
+```{r}
+valid_data %>% 
+  summarise(
+    langid_precision = sum(ifelse(locale == langid_locale, 1, 0)) / n(),
+    langdetect_precision = sum(ifelse(locale == langdetect_locale, 1, 0)) / n()
+  )
+```
+
+Langid breakdown by locale
+
+```{r}
+valid_data %>% 
+  group_by(locale) %>% 
+  summarise(
+    langid_precision = sum(ifelse(locale == langid_locale, 1, 0)) / n()
+  )  %>% 
+  ggplot(aes(x = reorder(locale, langid_precision), y = langid_precision)) + 
+    geom_bar(stat="identity")
+```
+
+
+```{r}
+valid_data %>% 
+  group_by(locale) %>% 
+  summarise(
+    langdetect_precision = sum(ifelse(locale == langdetect_locale, 1, 0)) / n()
+  )  %>% 
+  ggplot(aes(x = reorder(locale, langdetect_precision), y = langdetect_precision)) + 
+    geom_bar(stat="identity")
+```
+
+
+#### Approach-1: langid with threshold, then fall to langdetect
+
+```{r}
+langid_langdetect <- data.frame(threshold = numeric(), precision=numeric())
+for (th in seq(0, 1, by=0.01)) {
+  p <- (
+    valid_data %>% 
+      mutate(mix_locale = ifelse(langid_prob >= th, langid_locale, langdetect_locale)) %>% 
+      summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+  )$precision
+  
+  langid_langdetect[nrow(langid_langdetect) + 1,] = c(th, p)
+}
+
+langid_langdetect %>% 
+  ggplot(aes(x = threshold, y = precision)) + 
+    geom_line()
+```
+
+best threshold is:
+
+```{r}
+max_precision <- (langid_langdetect %>% summarise(max_precision = max(precision)))$max_precision
+langid_threshold <- head(langid_langdetect %>% filter(precision == max_precision), 1)$threshold
+```
+
+Evaluation of chosen method is:
+
+```{r}
+eval_data %>% 
+  mutate(mix_locale = ifelse(langid_prob >= langid_threshold, langid_locale, langdetect_locale)) %>% 
+  summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+```
+
+
+
+#### Approach-2: langdetect with threshold, then fall to langid
+
+```{r}
+langdetect_langid <- data.frame(threshold = numeric(), precision=numeric())
+for (th in seq(0, 1, by=0.01)) {
+  p <- (
+    valid_data %>% 
+      mutate(mix_locale = ifelse(langdetect_prob >= th, langdetect_locale, langid_locale)) %>% 
+      summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+  )$precision
+  
+  langdetect_langid[nrow(langdetect_langid) + 1,] = c(th, p)
+}
+
+langdetect_langid %>% 
+  ggplot(aes(x = threshold, y = precision)) + 
+    geom_line()
+```
+
+best threshold is:
+
+```{r}
+max_precision <- (langdetect_langid %>% summarise(max_precision = max(precision)))$max_precision
+langdetect_threshold <- head(langdetect_langid %>% filter(precision == max_precision), 1)$threshold
+```
+
+Evaluation of chosen method is:
+
+on validation data:
+
+```{r}
+valid_data %>% 
+  mutate(langdetect_locale = ifelse(langdetect_locale == "id", "ms", langdetect_locale)) %>%
+  mutate(mix_locale = ifelse(langdetect_prob >= langdetect_threshold, langdetect_locale, langid_locale)) %>% 
+  summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+```
+
+
+```{r}
+eval_data %>% 
+  mutate(mix_locale = ifelse(langdetect_prob >= langdetect_threshold, langdetect_locale, langid_locale)) %>% 
+  summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+```
+
+```{r}
+valid_data %>% 
+  mutate(langdetect_locale = ifelse(langdetect_locale == "id", "ms", langdetect_locale)) %>%
+  mutate(mix_locale = ifelse(langdetect_prob >= langdetect_threshold, langdetect_locale, langid_locale)) %>% 
+  group_by(locale) %>% 
+  summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n()) %>% 
+  ggplot(aes(x = reorder(locale, precision), y = precision)) + 
+    geom_bar(stat="identity")
+```
+
+#### Approach-3: Apply different threshold for each language
+
+```{r}
+get_threshold <- function(df, locale_name) {
+  precision_df <- data.frame(threshold = numeric(), precision=numeric())
+  for (th in seq(0, 1, by=0.01)) {
+    p <- (
+      df %>% 
+        filter(locale == locale_name) %>% 
+        mutate(mix_locale = ifelse(langdetect_prob >= th, langdetect_locale, langid_locale)) %>% 
+        summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+    )$precision
+    
+    precision_df[nrow(precision_df) + 1,] = c(th, p)
+  }
+  
+  max_precision <- (precision_df %>% summarise(max_precision = max(precision)))$max_precision
+  max_threshold <- head(precision_df %>% filter(precision == max_precision), 1)$threshold
+  
+  max_threshold
+}
+```
+
+```{r}
+locales <- unique(valid_data$locale)
+thresholds <- data.frame(langdetect_locale = character(), threshold = numeric(), stringsAsFactors = FALSE)
+
+for (locale in locales) {
+  thresholds[nrow(thresholds) + 1, ] = c(locale, get_threshold(valid_data, locale))
+}
+```
+
+Let's evaluate on valid dataset using thresholds
+
+```{r}
+merge(
+  valid_data,
+  thresholds,
+  by = c("langdetect_locale")
+) %>% 
+  mutate(pred_locale = ifelse(!is.na(langdetect_locale) & langdetect_prob >= threshold, langdetect_locale, langid_locale)) %>% 
+  summarise(precision = sum(ifelse(pred_locale == locale, 1, 0)) / n())
+```
+
+
+```{r}
+merge(
+  valid_data,
+  thresholds,
+  by = c("langdetect_locale")
+) %>% 
+  mutate(pred_locale = ifelse(!is.na(langdetect_locale) & langdetect_prob >= threshold, langdetect_locale, langid_locale)) %>% 
+  group_by(locale) %>% 
+  summarise(precision = sum(ifelse(pred_locale == locale, 1, 0)) / n()) %>% 
+  ggplot(aes(x = reorder(locale, precision), y = precision)) + 
+    geom_bar(stat="identity")
+```
+
+
+On evaluation dataset
+
+```{r}
+merge(
+  eval_data,
+  thresholds,
+  by = c("langdetect_locale")
+) %>% 
+  filter(locale != "ms", locale != "is") %>% 
+  mutate(pred_locale = ifelse(!is.na(langdetect_locale) & langdetect_prob >= threshold, langdetect_locale, langid_locale)) %>% 
+  summarise(precision = sum(ifelse(pred_locale == locale, 1, 0)) / n())
+```
+
+```{r}
+merge(
+  eval_data,
+  thresholds,
+  by = c("langdetect_locale")
+) %>% 
+  mutate(pred_locale = ifelse(!is.na(langdetect_locale) & langdetect_prob >= threshold, langdetect_locale, langid_locale)) %>% 
+  group_by(locale) %>% 
+  summarise(precision = sum(ifelse(pred_locale == locale, 1, 0)) / n()) %>% 
+  ggplot(aes(x = reorder(locale, precision), y = precision)) + 
+    geom_bar(stat="identity")
+  
+```
+
+
+#### Approach-4: Take whichever with highest confidence
+
+Evaluation of chosen method is:
+
+```{r}
+eval_data %>% 
+  mutate(mix_locale = ifelse(langdetect_prob >= langid_prob, langdetect_locale, langid_locale)) %>% 
+  summarise(precision = sum(ifelse(!is.na(mix_locale) & mix_locale == locale, 1, 0)) / n())
+```
+
+#### Debug
+
+Let's take a closer look at 100 valid examples where our best method so far failed to identify.
+
+```{r}
+debug_sample <- head(
+  valid_data %>% 
+    filter(locale == "no") %>% 
+    mutate(mix_locale = ifelse(langdetect_prob >= langdetect_threshold, langdetect_locale, langid_locale)) %>% 
+    mutate(id = Unnamed..0.1) %>% 
+    filter(mix_locale != locale) %>% 
+    select(id, curated_value, locale, mix_locale, langdetect_locale, langdetect_prob, langid_locale, langid_prob),
+  100
+)
+```
+

@@ -1,0 +1,109 @@
+---
+title: "spending"
+output: html_notebook
+---
+
+## Introduction
+
+In this document, we study how much I spent bi-weekly since I started on Airbnb to understand how much money I 
+need to save in order to be able to live comfortably for 6 months.
+
+## Analysis
+
+### Loading
+
+```{r}
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+```
+
+
+```{r}
+data <- read.csv(
+  "overall_spending.csv", 
+  header = FALSE, 
+  col.names = c("date", "purchase", "amount"),
+  stringsAsFactors=FALSE
+)
+
+data$date <- as.Date(data$date, "%m/%d/%Y")
+data$amount <- as.numeric(data$amount)
+```
+
+
+```{r}
+# given "Date" class vector x return same date if Mon or next Mon if not
+nextmon <- function(x) 7 * ceiling(as.numeric(x-1+4)/7) + as.Date(1-4, origin="1970-01-01")
+```
+
+
+```{r}
+data$next_monday <- nextmon(data$date)
+
+batched_data <- data %>% 
+  group_by(next_monday) %>% 
+  summarise(total_amount = sum(amount))
+
+batched_data %>% 
+  ggplot(aes(x = next_monday, y = total_amount)) +
+    geom_line() + 
+    geom_smooth(method="lm")
+```
+
+
+### Model
+
+```{r}
+training_data <- batched_data %>% 
+  mutate(epoch_date = as.numeric(next_monday))
+
+model <- lm(formula = total_amount ~ epoch_date, data = training_data)
+```
+
+
+### What is total money I need to save in saving account?
+
+```{r}
+test_data <- data.frame(total_amount=double(), epoch_date=numeric())
+for (date in seq(as.Date("2018-03-19"), by = 7, length.out = 30)) {
+  test_data[nrow(test_data) + 1, ] = c(0.0, as.numeric(nextmon(date)))
+}
+
+
+test_data$total_amount <- predict(model, test_data)
+```
+
+
+This is what my spending will look like:
+```{r}
+test_data %>% 
+  mutate(week = as.Date(epoch_date, origin="1960-10-01")) %>% 
+  ggplot(aes(x = week, y = total_amount)) + 
+    geom_line()
+```
+
+Total amount I will need for next 30 weeks (including total rent, which is monthly therefore has 7 months):
+
+```{r}
+sum(test_data$total_amount) + 1450.0 * 7
+```
+
+### How should I split my bi-weekly income moving forward?
+
+1. Compute weekly spending for next entire year
+2. Create spreadsheet with exact money to place in checking account
+3. Add rent into value to be added into the checking account
+4. Compute leftover value
+
+
+## Conclusion 
+
+1. I will keep 30K in saving account and leftover in Savings account to Wealthfront.
+2. Based on my weekly spending, I will distribute my checking account + deposit:
+  * $a as spending value (This will be accessible from spreadsheet with weekly spending amount)
+  * $b as rent
+  * $c for Robinhood transfer
+  * $d for Wealthfront transfer
+  * $e for travel fund
+  

@@ -1,0 +1,10 @@
+name: covid
+title:
+username:
+account: lkhamsurenl
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2673634
+bundleId: 3520085
+url: https://lkhamsurenl.shinyapps.io/covid/
+when: 1597520707.79314
